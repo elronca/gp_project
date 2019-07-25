@@ -120,7 +120,7 @@ dist_geo <- function(lat_a, lon_a, lat_b, lon_b) {
   
   if(anyNA(c(lat_a, lon_a, lat_b, lon_b))) return(NA) 
   
-  round(distm(c(lon_a, lat_a), c(lon_b, lat_b), fun = distHaversine)/1000,2) 
+  round(distm(c(lon_a, lat_a), c(lon_b, lat_b), fun = distHaversine)/1000, 2) 
   
   } 
 
@@ -176,7 +176,7 @@ if(FALSE) {
 
 # We calculate the driving times using the google directions API ----------
 
-  google_distance_delayed <- function(x,y) {
+  google_distance_delayed <- function(x, y) {
     
     pb$tick()$print()
     
@@ -219,7 +219,6 @@ if(FALSE) {
 load(file.path("workspace", "drv_dist_all.RData"))
 
 
-
 # We combine the dataset with the Medstat information and the travel distances --------
 
 dist_MS_GP <- bind_cols(dist_GP, drv_dist)
@@ -255,5 +254,3 @@ rm("border_50_km", "dist_50_km", "dist_geo", "dist_GP", "dist_MS_GP",
      "dist_MS_GP_25_min", "drv_dist", "FL00", "GP_addr", "GP_addr.sp", 
      "GP_coordinates", "MS_coordinates", "MS_spdf", "n_rows_GP", "n_rows_MS", 
      "pop_centroids_most_pop_place", "region")
-
-
