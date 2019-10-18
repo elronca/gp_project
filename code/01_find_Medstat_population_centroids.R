@@ -2,6 +2,7 @@
 
 library(tidyverse)
 library(sf)
+library(ggspatial)
 
 
 # Identify places of highest population density in each Medstat region --------
@@ -9,7 +10,8 @@ library(sf)
 
 # Read Medstat polygons
 
-MS_spdf <- st_read(file.path("data", "MedStat_GIS", "MedStat_Base_2011_region.shp"), as_tibble = TRUE, options = "ENCODING=WINDOWS-1252") %>% 
+MS_spdf <- st_read(file.path("data", "MedStat_GIS", "MedStat_Base_2011_region.shp"), 
+                   as_tibble = TRUE, options = "ENCODING=WINDOWS-1252") %>% 
   filter(KT != "FL")
 
 
@@ -127,6 +129,7 @@ get_pop_centroids <- function(i, intersects) {
     geom_point(data = most_pop_place, aes(x = X_Koord, y = Y_Koord), colour = "green", shape = 0, stroke = 2, size = 6) +
     geom_sf(data = center_crude_sp, colour = "yellow", size = 5, stroke = 2, shape = 21) +
     geom_sf(data = center_weighted_sp, colour = "blue", size = 5, stroke = 2, shape = 21) +
+    annotation_scale(location = "br") +
     ggtitle(name_MedStat)
   
   
@@ -138,7 +141,9 @@ get_pop_centroids <- function(i, intersects) {
 
 
 pb <- progress_estimated(705)
+# pb <- progress_estimated(1)
 my_results <- map(1:705, get_pop_centroids, intersects = my_intersects)
+# my_results <- map(1, get_pop_centroids, intersects = my_intersects)
 
 # Get Medstat names
 
