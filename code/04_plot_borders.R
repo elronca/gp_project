@@ -15,7 +15,8 @@ load(file = file.path("workspace", "pop_MS.RData"))
 # Shapefiles von MedStat Regionen und Schweizer Seen
 
 ms_sp_raw <- st_read(file.path("data", "MedStat_GIS", "MedStat_Base_2011_region.shp"), 
-                     as_tibble = TRUE, options = "ENCODING=WINDOWS-1252")
+                     as_tibble = TRUE, options = "ENCODING=WINDOWS-1252",
+                     stringsAsFactors = FALSE)
 
 lakes <- rbind(
   
@@ -29,7 +30,7 @@ lakes <- rbind(
 load(file.path("workspace", "GP_addr.sp.Rdata"))
 load(file.path("workspace", "cent_addr.sp.Rdata"))
 
-GP_addr.sp <- st_transform(GP_addr.sp, crs = st_crs(ms_sp_raw)$proj4string)
+GP_addresses.sp <- st_transform(GP_addresses.sp, crs = st_crs(ms_sp_raw)$proj4string)
 
 
 # Bereite Anzahl Personen pro Region vor
@@ -41,6 +42,7 @@ ppr <- pop_MS %>%
   select(MedStat, n_sci) %>% 
   
   distinct(MedStat, .keep_all = TRUE) %>% 
+  
   mutate(n_sci = as.integer(n_sci), 
          n_sci = if_else(MedStat == "FL00", NA_integer_, n_sci)) %>% 
   mutate(n_sci_cat = cut(n_sci,
@@ -57,8 +59,7 @@ GP_MS <- pop_MS %>%
   filter(Ort %in% c("Chur", "Klosters", "Promotogno", "Reichenbach", "Sargans",
                     "St. Gallen", "Thun", "Weinfelden", "Yverdon", "Meiringen") | str_detect(Ort, "Maria")) %>% 
   split(.$Ort) %>% 
-  map(`[`, c("MedStat")) %>%
-  map(pull)
+  map("MedStat")
 
 
 # Get 25-minutes radius around specialist services providers ----------
@@ -66,12 +67,10 @@ GP_MS <- pop_MS %>%
 spec_MS <- pop_MS %>% 
   filter(Ort %in% c("REHAB", "Amb_Bellinzona", "Plein soleil", "SPZ", "Crr Suva", "Balgrist")) %>% 
   split(.$Ort) %>% 
-  map(`[`, c("MedStat")) %>%
-  map(pull)
+  map("MedStat")
 
 
 # Extrahiere die 25-Minuten Grenzen um die Hausärzte und Spezialisten
-
 
 get_borders <- function(x) {
   ms_sp_raw %>%
@@ -89,30 +88,39 @@ spec_borders <- map(spec_MS, get_borders)
 # Get the outer rings of the 25 minutes borders around the GPs as one polygon
 
 all_GP_borders <- do.call(c, GP_borders)
-if(TRUE) {all_GP_borders %>% ggplot() + geom_sf()}
+if(FALSE) {all_GP_borders %>% ggplot() + geom_sf()}
 
 # Get the outer rings of the 25 minutes borders around the clinics as one polygon
 
 all_spec_borders <- do.call(c, spec_borders)
-if(TRUE) {all_spec_borders %>% ggplot() + geom_sf()}
+
+
+# PSCICO people want Bellinzona separately for whatever reason
+
+spec_borders_excl_Bellinzona <- spec_borders
+spec_borders_excl_Bellinzona[["Amb_Bellinzona"]] <- NULL
+spec_borders_excl_Bellinzona <- do.call(c, spec_borders_excl_Bellinzona)
+
+if(FALSE) {all_spec_borders %>% ggplot() + geom_sf()}
+if(FALSE) {spec_borders_excl_Bellinzona %>% ggplot() + geom_sf()}
 
 
 # Get all the Medstat regions inside the 25 minutes borders.
 # They will be later used to plot
 
 GP_regions <- ms_sp_raw %>% filter(MEDSTAT04 %in% unlist(GP_MS))
-if(TRUE) {GP_regions %>% ggplot() + geom_sf()}
+if(FALSE) {GP_regions %>% ggplot() + geom_sf()}
 
 
 # Get the border of Switzerland
 
 Swiss_border <- ms_sp_raw %>% st_union %>% nngeo::st_remove_holes()
-if(TRUE) {Swiss_border %>% ggplot() + geom_sf()}
+if(FALSE) {Swiss_border %>% ggplot() + geom_sf()}
 
 
 # Check with an example
 
-if(TRUE) {
+if(FALSE) {
   GP_borders[["Meiringen"]] %>% ggplot() + geom_sf()
   ms_sp_raw %>% filter(MEDSTAT04 %in% GP_MS[["Meiringen"]]) %>% ggplot() + geom_sf()
 }
@@ -151,18 +159,20 @@ catchment_areas_GPs <- ggplot() +
   
   geom_sf(data = all_GP_borders, fill = NA, colour = "darkgreen", size = 0.5) +
   
-  geom_sf(data = all_spec_borders, fill = NA, colour = "red", size = 0.5) +
+  geom_sf(data = spec_borders_excl_Bellinzona, fill = NA, colour = "red", size = 0.5) +
+  geom_sf(data = spec_borders[["Amb_Bellinzona"]], fill = NA, colour = "#E69F00", size = 0.5) +
   
   geom_sf(data = Swiss_border, fill = NA, colour = "black", show.legend = FALSE) +
   
-  geom_sf(data = GP_addr.sp, size = 4, stroke = 1, color = "black", fill = "lawngreen", alpha = 0.8, shape = 23) +
+  geom_sf(data = GP_addresses.sp, size = 4, stroke = 1, color = "black", fill = "lawngreen", alpha = 0.8, shape = 23) +
   
-  geom_sf(data = cent_addr.sp, size = 4, stroke = 1, color = "black", fill = "red", alpha = 0.8, shape = 21) +
+  geom_sf(data = cent_addresses.sp %>% filter(place != "Bellinzona"), size = 4, stroke = 1, color = "black", fill = "red", alpha = 0.8, shape = 21) +
+  geom_sf(data = cent_addresses.sp %>% filter(place == "Bellinzona"), size = 4, stroke = 1, color = "black", fill = "#E69F00", alpha = 0.8, shape = 21) +
   
   coord_sf(datum = NA) + my_theme +
   
-  ggtitle("Anzahl Personen mit Querschnittlähmung in 25 min Fahrdistanz von Hausarzt")
-
+  labs(title = "Anzahl Personen mit Querschnittlähmung in 25 min Fahrdistanz von Hausarzt", 
+       caption = "Roter Punkt und Grenze = Spezialisierte Zentren\nGelber Punkt und Grenze = Ambulatorium Bellinzona\n Grüne Vierecke = Hausärzte")
 
 ggsave(file.path("output", "map_all_GPs.pdf"), 
        plot = catchment_areas_GPs, 
@@ -201,7 +211,7 @@ plot_GPs_individually <- function(x) {
     
     geom_sf(data = Swiss_border, fill = NA, colour = "black", show.legend = FALSE) +
     
-    geom_sf(data = GP_addr.sp %>% filter(Ort == x), 
+    geom_sf(data = GP_addresses.sp %>% filter(Ort == x), 
             size = 7, stroke = 2, color = "black", fill = "lawngreen", alpha = 0.5, shape = 23) +
     
     geom_sf(data = cent_addr.sp, size = 4, stroke = 1, color = "black", fill = "red", alpha = 0.8, shape = 21) +
@@ -231,7 +241,7 @@ ggsave(file.path("output", "GPs_regions.pdf"),
 # Clear workspace and end project
 
 rm("all_GP_borders", "all_spec_borders", "catchment_areas_GPs", 
-  "cent_addr.sp", "combined_plots", "get_borders", "GP_addr.sp", 
+  "cent_addr.sp", "combined_plots", "get_borders", "GP_addresses.sp", 
   "GP_borders", "GP_MS", "GP_regions", "lakes", "ms_sp", "ms_sp_raw", 
   "my_colors", "my_plots", "my_theme", "plot_GPs_individually", 
   "pop_MS", "ppr", "spec_borders", "spec_MS", "Swiss_border")

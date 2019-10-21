@@ -2,20 +2,23 @@
 library(tidyverse)
 library(sf)
 library(geosphere)
-library(googleway)
 library(ggmap)
+library(googleway)
 library(mapview)
 
 mapviewOptions(basemaps = c("OpenStreetMap", "Esri.WorldImagery"))
 
+
 # Get centroids of Medstat regions
 
-load(file.path("workspace", "pop_centroids_most_pop_place.RData"))
+load(file.path("workspace", "center_most_pop_place.RData"))
+
 
 # Read Medstat shapefile
 
 MS_spdf <- st_read(file.path("data", "MedStat_GIS", "MedStat_Base_2011_region.shp"), 
-                   as_tibble = TRUE, options = "ENCODING=WINDOWS-1252")
+                   as_tibble = TRUE, 
+                   options = "ENCODING=WINDOWS-1252", stringsAsFactors = FALSE)
 
 
 # Get GP and SCI centers/clinics addresses -----------------------------------
@@ -23,43 +26,33 @@ MS_spdf <- st_read(file.path("data", "MedStat_GIS", "MedStat_Base_2011_region.sh
 
 # GP
 
-GP_addr <- read_csv2(file.path("data", "gp_addresses.csv")) %>% 
+gp_addresses <- read_excel("data/gp_addresses.xlsx") %>% 
   mutate_all(str_trim) %>% 
   mutate(PLZ = as.numeric(PLZ)) %>% 
   mutate(GP_addr_string = str_c(street, PLZ, Ort, "Schweiz", sep = " + "))
 
 
-# Add Meiringen
-
-GP_addr <- add_case(
-  GP_addr, name = NA_character_, 
-  street = "Spitalstrasse 13", 
-  PLZ = 3860, 
-  Ort = "Meiringen", 
-  GP_addr_string = "Spitalstrasse 13 + 3860 + Meiringen + Schweiz")
-
-
-
 # SCI
 
 SCI_centers <- tibble(
-  place = c("Plein Soleil", "SPZ", "Crr Suva", "Balgrist", "REHAB", "Bellinzona"), 
+  place = c("Plein Soleil", "SPZ", "Crr Suva", "Balgrist", "REHAB", "Ente Ospedaliero Cantonale"), 
   street = c("Ch. de la Cigale 3", 
              "Guido A. Zäch Str. 1", 
              "Avenue du Grand-Champsec 90", 
              "Forchstrasse 340",
              "Im Burgfelderhof 40",
-             "Via Camminata 5"),
+             "Viale Officina 3"),
   PLZ = c(1010, 6207, 1950, 8008, 4055, 6500),
-  Ort =  c("Lausanne", "Nottwil", "Sion", "Zürich", "Basel", "Bellinzona")) %>% 
+  Ort =  c("Lausanne", "Nottwil", "Sion", "Zürich", "Basel", "Bellinzona")) %>%
+  
   mutate(center_addr_string = str_c(street, PLZ, Ort, "Schweiz", sep = " + "))
 
 
 if(TRUE) {
   
-  register_google("AIzaSyATu6r_ZkcS672g5B9T9HqdFktaKN_shhk")
+  ggmap::register_google("AIzaSyATu6r_ZkcS672g5B9T9HqdFktaKN_shhk")
   
-  GP_coordinates <- geocode(GP_addr$GP_addr_string, output = "latlon", source = "google")
+  GP_coordinates <- geocode(gp_addresses$GP_addr_string, output = "latlon", source = "google")
   save(GP_coordinates, file = file.path("workspace", "coordinates_GPs.RData"))
   
   
@@ -74,24 +67,24 @@ load(file.path("workspace", "cent_coordinates.RData"))
 
 # Bind coordinates to addresses
 
-GP_addr <- bind_cols(GP_addr, GP_coordinates)
-cent_addr <- bind_cols(SCI_centers, cent_coordinates)
+gp_addresses <- bind_cols(gp_addresses, GP_coordinates)
+cent_addresses <- bind_cols(SCI_centers, cent_coordinates)
 
 
 # Transform addresses/coordinates into a Spatial Points object
 
-GP_addr.sp <- st_as_sf(x = GP_addr, coords = c("lon", "lat"), crs = "+proj=longlat +datum=WGS84")
-cent_addr.sp <- st_as_sf(x = cent_addr, coords = c("lon", "lat"), crs = "+proj=longlat +datum=WGS84")
+GP_addresses.sp <- st_as_sf(x = gp_addresses, coords = c("lon", "lat"), crs = "+proj=longlat +datum=WGS84")
+cent_addresses.sp <- st_as_sf(x = cent_addresses, coords = c("lon", "lat"), crs = "+proj=longlat +datum=WGS84")
 
-save(GP_addr.sp, file = file.path("workspace", "GP_addr.sp.Rdata"))
-save(cent_addr.sp, file = file.path("workspace", "cent_addr.sp.Rdata"))
+save(GP_addresses.sp, file = file.path("workspace", "GP_addr.sp.Rdata"))
+save(cent_addresses.sp, file = file.path("workspace", "cent_addresses.sp.Rdata"))
 
 
 # Check whether the GPs/centers are at the correct place
 
 if(TRUE) {
-mapview(GP_addr.sp)
-mapview(cent_addr.sp)
+  mapview(GP_addresses.sp)
+  mapview(cent_addresses.sp)
 }
 
 
@@ -101,38 +94,28 @@ mapview(cent_addr.sp)
 # Transform coordinates system of population centroids (hectare with highest population) to
 # google coordinates system
 
-MS_coordinates <- pop_centroids_most_pop_place %>% 
-  bind_rows(.id = "MedStat") %>% 
-  st_as_sf(coords = c("X_Koord", "Y_Koord"), crs = st_crs(MS_spdf)$proj4string) %>% 
-  st_transform("+proj=longlat +datum=WGS84")
-
-
-# CHeck Coordinates on map
+MS_coordinates <- do.call(rbind, center_most_pop_place) %>% 
+  add_column(MedStat = names(center_most_pop_place), .before = 1) %>% 
+  st_transform("+proj=longlat +datum=WGS84") %>% 
+  select(-B12BTOT) %>% 
+  add_column(lon = st_coordinates(MS_coordinates)[, "X"]) %>% 
+  add_column(lat = st_coordinates(MS_coordinates)[, "Y"])
 
 if(TRUE) {mapview(MS_coordinates)}
-
-
-# Get longitude and latitude as separate columns
-
-MS_coordinates <- MS_coordinates %>% 
-  add_column(lon = st_coordinates(MS_coordinates)[, 1]) %>% 
-  add_column(lat = st_coordinates(MS_coordinates)[, 2]) 
+  
 
 
 # Bind Fürstentum Lichtenstein as separate row into Medstat centroid dataset
 # For Fürstentum Lichtenstein we had no population centroid, therefore we choose Vaduz
 
-FL00 <- tibble(MedStat = "FL00", lon = 9.520915, lat = 47.141091) %>% 
+FL00 <- tibble(MedStat = "FL00", 
+               lon = 9.520915, lat = 47.141091) %>% 
   st_as_sf(coords = c("lon", "lat"), crs = "+proj=longlat +datum=WGS84") %>% 
   add_column(lon = 9.520915, lat = 47.141091)
 
-typeof(MS_coordinates)
-typeof(FL00)
-
-class(MS_coordinates)
-class(FL00)
-  
 MS_coordinates <- rbind(MS_coordinates, FL00)
+
+tail(MS_coordinates)
 
 
 # Bind GP/SCI center coordinates to Medstat centroid dataset -------------------------------
@@ -144,33 +127,33 @@ MS_coordinates <- rbind(MS_coordinates, FL00)
 # GP
 
 n_rows_MS <- nrow(MS_coordinates)
-n_rows_GP <- nrow(GP_addr)
+n_rows_GP <- nrow(gp_addresses)
 
 MS_coordinates_GP <- MS_coordinates %>% 
   as_tibble() %>% 
   uncount(n_rows_GP) %>% 
   rename(lon_MS = lon, lat_MS = lat)
 
-GP_addr <- do.call("rbind", replicate(n_rows_MS, GP_addr, simplify = FALSE)) %>% 
+gp_addresses <- do.call("rbind", replicate(n_rows_MS, gp_addresses, simplify = FALSE)) %>% 
   rename(lon_GP = lon, lat_GP = lat)
 
-dist_GP <- bind_cols(MS_coordinates_GP, GP_addr)
+dist_GP <- bind_cols(MS_coordinates_GP, gp_addresses)
 
 
 # Center SCI
 
 n_rows_MS <- nrow(MS_coordinates)
-n_rows_cent <- nrow(cent_addr)
+n_rows_cent <- nrow(cent_addresses)
 
 MS_coordinates_cent <- MS_coordinates %>% 
   as_tibble() %>% 
   uncount(n_rows_cent) %>% 
   rename(lon_MS = lon, lat_MS = lat)
 
-cent_addr <- do.call("rbind", replicate(n_rows_MS, cent_addr, simplify = FALSE)) %>% 
+cent_addresses <- do.call("rbind", replicate(n_rows_MS, cent_addresses, simplify = FALSE)) %>% 
   rename(lon_cent = lon, lat_cent = lat)
 
-dist_cent <- bind_cols(MS_coordinates_cent, cent_addr)
+dist_cent <- bind_cols(MS_coordinates_cent, cent_addresses)
 
 
 
@@ -183,7 +166,7 @@ dist_beeline <- function(lat_a, lon_a, lat_b, lon_b) {
   
   if(anyNA(c(lat_a, lon_a, lat_b, lon_b))) return(NA) 
   
-  distm(c(lon_a, lat_a), c(lon_b, lat_b), fun = distHaversine) / 1000
+  distm(c(lon_a, lat_a), c(lon_b, lat_b), fun = geosphere::distHaversine) / 1000
   
 }
 
@@ -208,7 +191,7 @@ dist_cent_50_km <- dist_cent %>%
 
 border_50_km <- dist_GP_50_km %>% 
   split(.$GP_addr_string) %>% 
-  map(. %>% pull(MedStat))
+  map("MedStat")
 
 
 region <- MS_spdf %>%
@@ -216,14 +199,14 @@ region <- MS_spdf %>%
   group_by(MEDSTAT04) %>% 
   summarise()
 
-if(TRUE) { mapview(list(GP_addr.sp, region)) }
+if(TRUE) { mapview(list(GP_addresses.sp, region)) }
 
 
 # Centers
 
 border_50_km <- dist_cent_50_km %>% 
   split(.$center_addr_string) %>% 
-  map(. %>% pull(MedStat))
+  map("MedStat")
 
 
 region <- MS_spdf %>%
@@ -231,13 +214,13 @@ region <- MS_spdf %>%
   group_by(MEDSTAT04) %>% 
   summarise()
 
-if(TRUE) { mapview(list(cent_addr.sp, region)) }
+if(TRUE) { mapview(list(cent_addresses.sp, region)) }
 
 
 
-# Calculate driving times GP -------------------------------------------------
 
-if(TRUE) {
+
+if(TRUE) { # Calculate driving times GP -------------------------------------------------
   
   # Prepare lat/lon coordinates
   
@@ -251,7 +234,7 @@ if(TRUE) {
     select(lat_MS, lon_MS) %>% 
     split(seq(nrow(.))) %>% 
     set_names(dist_GP_50_km$MedStat) %>% 
-    lapply(unlist)
+    map(unlist)
   
   # GP
   
@@ -259,7 +242,7 @@ if(TRUE) {
     select(lat_GP, lon_GP) %>% 
     split(seq(nrow(.))) %>% 
     set_names(dist_GP_50_km$MedStat) %>% 
-    lapply(unlist)
+    map(unlist)
   
   
   # SCI centers
@@ -272,7 +255,8 @@ if(TRUE) {
     select(lat_MS, lon_MS) %>% 
     split(seq(nrow(.))) %>% 
     set_names(dist_cent_50_km$MedStat) %>% 
-    lapply(unlist)
+    map(unlist)
+  
   
   # GP
   
@@ -280,13 +264,8 @@ if(TRUE) {
     select(lat_cent, lon_cent) %>% 
     split(seq(nrow(.))) %>% 
     set_names(dist_cent_50_km$MedStat) %>% 
-    lapply(unlist)
-  
-  
-  names(GP_distances)
-  names(cent_distances)
-  
-  
+    map(unlist)
+
   
   # We calculate the driving times using the google directions API ----------
   
@@ -298,9 +277,7 @@ if(TRUE) {
     
     key <- "AIzaSyATu6r_ZkcS672g5B9T9HqdFktaKN_shhk"
     
-    
-    
-    drv_dist <- google_distance(
+    drv_dist <- googleway::google_distance(
       origins = x, 
       destinations = y, 
       key = key, 
@@ -339,7 +316,7 @@ if(TRUE) {
   
   #!! Take care, if travel time by car cannot be calculated as the place is not reachable by car
   #!! then the traval time by public transport is being calculated. For this, the time now is used
-  #!! this means that at the time when this script is run there are no trains are running then the 
+  #!! this means that if at the time when this script is run there are no train connections, then the 
   #!! travel times will be incorrect.
   
   
@@ -386,14 +363,14 @@ dist_cent_50_km <- bind_cols(dist_cent_50_km, drv_dist_cent)
 # GP
 
 dist_GP_50_km <- mutate(dist_GP_50_km, 
-                  MS_address_string = str_c(lat_MS, lon_MS, sep = ", "),
-                  GP_address_string = str_c(lat_GP, lon_GP, sep = ", "))
+                        MS_address_string = str_c(lat_MS, lon_MS, sep = ", "),
+                        GP_address_string = str_c(lat_GP, lon_GP, sep = ", "))
 
 # SCI centers
 
 dist_cent_50_km <- mutate(dist_cent_50_km, 
-                        MS_address_string = str_c(lat_MS, lon_MS, sep = ", "),
-                        cent_address_string = str_c(lat_cent, lon_cent, sep = ", "))
+                          MS_address_string = str_c(lat_MS, lon_MS, sep = ", "),
+                          cent_address_string = str_c(lat_cent, lon_cent, sep = ", "))
 
 
 # We select the variables we want
@@ -401,9 +378,9 @@ dist_cent_50_km <- mutate(dist_cent_50_km,
 # GP
 
 dist_GP_50_km <- select(dist_GP_50_km, 
-                     MedStat, Ort, duration_min, distance_km, distance_km_beeline, 
-                     MS_address_string, GP_addr_string, GP_address_string, 
-                     origin, destination) %>% 
+                        MedStat, Ort, duration_min, distance_km, distance_km_beeline, 
+                        MS_address_string, GP_addr_string, GP_address_string, 
+                        origin, destination) %>% 
   arrange(Ort, duration_min)
 
 
@@ -424,15 +401,13 @@ dist_MS_GP_25_min <- filter(dist_GP_50_km, duration_min < 26) %>%
 dist_MS_cent_25_min <- filter(dist_cent_50_km, duration_min < 26) %>% 
   arrange(Ort)
 
+
 # We save the dataset and clear the workspace -----------------------------
 
 save(dist_MS_GP_25_min, file = file.path("workspace", "dist_MS_GP_25_min.RData"))
 save(dist_MS_cent_25_min, file = file.path("workspace", "dist_MS_cent_25_min.RData"))
 
-rm("border_50_km", "cent_addr", "cent_addr.sp", "cent_coordinates", 
-  "dist_beeline", "dist_cent", "dist_cent_50_km", "dist_GP", "dist_GP_50_km", 
-  "dist_MS_cent_25_min", "dist_MS_GP_25_min", "drv_dist_cent", 
-  "drv_dist_GP", "FL00", "GP_addr", "GP_addr.sp", "GP_coordinates", 
-  "MS_coordinates", "MS_coordinates_cent", "MS_coordinates_GP", 
-  "MS_spdf", "n_rows_cent", "n_rows_GP", "n_rows_MS", "pop_centroids_most_pop_place", 
-  "region", "SCI_centers")
+rm("cent_addresses", "cent_addresses.sp", "cent_coordinates", 
+  "center_most_pop_place", "dist_beeline", "drv_dist_cent", "drv_dist_GP", 
+  "FL00", "gp_addresses", "GP_addresses.sp", "GP_coordinates", 
+  "GP_distances", "MS_spdf", "n_rows_cent", "n_rows_GP", "SCI_centers")

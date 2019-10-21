@@ -184,7 +184,7 @@ get_pop_centroids <- function(i, my_intersects, my_crs, pop_dens_file, map_file)
 pb <- progress_estimated(nrow(MS_spdf))
 
 my_results <- map(.x = seq_len(nrow(MS_spdf)), .f = get_pop_centroids, my_intersects = intersects, my_crs = crs_MS_spdf, pop_dens_file = pop_hectare_sp, map_file = MS_spdf)
-
+names(my_results) <- MS_spdf$MEDSTAT04
 
 # Plot different Medstat centers ------------------------------------------
 

@@ -14,13 +14,8 @@ sci_2012 <- read_csv2(file.path("data", "SwiSCI-Data_2015_02_09.csv")) %>%
   select(id = `SwiSCI-ID`, MedStat) %>% 
   mutate(year = 2012)
 
-
 sci_2017 <- read_csv2(file.path("data", "2018-C-006_Fragebogen2_2019_02_27.csv")) %>% 
-  
-  select(
-    id = id_swisci,
-    MedStat = medstat) %>% 
-  
+  select(id = id_swisci, MedStat = medstat) %>% 
   mutate(year = 2017)
 
 sci <- bind_rows(sci_2012, sci_2017) %>% 
@@ -65,17 +60,30 @@ competitors <- pop_MS %>%
   map_chr(function(x) {str_c(pull(x), collapse = "; ")}) %>% 
   enframe(name = "MedStat", value = "competitors")
 
-comp_region <- pop_MS %>% select(MedStat, n_sci) %>% 
+comp_region <- pop_MS %>% 
+  select(MedStat, n_sci) %>% 
   left_join(competitors, by = "MedStat") %>% 
   arrange(MedStat)
 
 
-# Remove regions from where only a specialist can be reached
+# Get swisci ids per region -----------------------------------------------
 
-GP_locations <- c("Chur", "Klosters", "Promotogno", "Reichenbach", "Sargans",
-                  "St. Gallen", "Sta. Maria V.M.", "Thun", "Weinfelden", "Yverdon")
+sci_per_MS <- sci %>% 
+  mutate(id_swsci = as.character(id)) %>% 
+  select(id_swsci, MedStat) %>% 
+  split(.$MedStat) %>% 
+  map_dfr(function(x) mutate(x, swisci_ids = paste(id_swsci, collapse = ", ")) %>% select(-id_swsci) %>% slice(1))
+
 
 specialist_locations <- c("REHAB", "Amb_Bellinzona", "Plein soleil", "SPZ", "Crr Suva", "Balgrist")
+
+sci_per_MS <- left_join(comp_region, sci_per_MS, by = "MedStat") %>% 
+  filter(!competitors %in% specialist_locations) %>% 
+  distinct(.keep_all = TRUE) %>% 
+  select(MedStat, competitors, n_sci, swisci_ids) %>% 
+  arrange(MedStat)
+
+write.csv2(sci_per_MS, file.path("output", "sci_per_MS.csv"), row.names = FALSE)
 
 
 # Remove specialists only regions
@@ -104,13 +112,16 @@ comp_region <- mutate(comp_region, spec_cent = map_int(competitors, ~ str_detect
 
 # 1) Region characteristics
 
+
 region_characteristics <- comp_region %>% 
   
-  summarize(total_regions = n(),
-            regions_spec_nearby = sum(spec_cent),
-            regions_GP_exclusively = n() - sum(spec_cent)) %>% 
+  summarize(
+    
+    total_regions = n(),
+    regions_spec_nearby = sum(spec_cent),
+    regions_GP_exclusively = n() - sum(spec_cent)) %>% 
   
-  t() %>% as_tibble(rownames = "id") %>% set_names(c("characteristics", "n"))
+  pivot_longer(cols = everything(), names_to = "characteristics", values_to = "n")
 
 write_csv2(region_characteristics, file.path("output", "characteristics_Medstat_regions.csv"))
 
@@ -119,13 +130,16 @@ write_csv2(region_characteristics, file.path("output", "characteristics_Medstat_
 
 individuals_characteristics <- comp_region %>% 
   
-  summarize(total_pers_in_regions = sum(n_sci),
-            lost_pers_due_to_spec = sum(comp_region[spec_cent == 1, ]$n_sci),
-            pers_left_for_study = total_pers_in_regions - lost_pers_due_to_spec) %>% 
+  summarize(
+    
+    total_pers_in_regions = sum(n_sci),
+    lost_pers_due_to_spec = sum(comp_region[spec_cent == 1, ]$n_sci),
+    pers_left_for_study = total_pers_in_regions - lost_pers_due_to_spec) %>% 
   
-  t() %>% as_tibble(rownames = "id") %>% set_names(c("characteristics", "n"))
+  pivot_longer(cols = everything(), names_to = "characteristics", values_to = "n")
 
 write_csv2(individuals_characteristics, file.path("output", "indiv_characteristics_Medstat_regions.csv"))
+
 
 
 # 3) Potential patients per region or group of regions including specialists
@@ -135,10 +149,12 @@ shared_patients_w_spec <- comp_region %>%
   summarize(n_sci = sum(n_sci)) %>% 
   filter(n_sci != 0)
 
-write.csv2(shared_patients_w_spec, file.path("output", "shared_patients_w_spec.csv"), row.names = FALSE)
+write.csv2(shared_patients_w_spec, 
+           file.path("output", "shared_patients_w_spec.csv"), 
+           row.names = FALSE)
 
 
-# Potential patients for each GP without specialist interference
+# 4) Potential patients for each GP without specialist interference
 
 pot_pat_GP <- pop_MS %>% 
   filter(!Ort %in% specialist_locations) %>% 
@@ -146,7 +162,9 @@ pot_pat_GP <- pop_MS %>%
   summarize(n_sci_potential = sum(n_sci)) %>% 
   add_column("Potential patients for each GP without specialists interference" = "")
 
-write.csv2(pot_pat_GP, file.path("output", "pot_pat_GP.csv"), row.names = FALSE)
+write.csv2(pot_pat_GP, 
+           file.path("output", "pot_pat_GP.csv"), 
+           row.names = FALSE)
 
 
 # 5) Persons with SCI per region or group of regions excluding specialists
@@ -160,10 +178,11 @@ shared_patients_w_o_spec <- comp_region %>%
   add_column("Persons with SCI per region or group of regions excluding specialists" = "")
 
 
-# Clear workspace
 
-rm("comp_region", "dist_MS_cent_25_min", "dist_MS_GP_25_min", 
-     "dist_providers", "GP_locations", "individuals_characteristics", 
-     "pop_MS", "pot_pat_GP", "region_characteristics", "sci", "shared_patients_w_o_spec", 
-     "shared_patients_w_spec", "specialist_locations", "specialist_string", 
-     "specialists_only", "competitors")
+# Clear workspace ---------------------------------------------------------
+
+rm("comp_region", "competitors", "dist_MS_cent_25_min", "dist_MS_GP_25_min", 
+  "dist_providers", "individuals_characteristics", "pop_MS", "pot_pat_GP", 
+  "region_characteristics", "sci", "shared_patients_w_o_spec", 
+  "shared_patients_w_spec", "specialist_locations", "specialist_string", 
+  "specialists_only")
